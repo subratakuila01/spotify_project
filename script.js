@@ -1,9 +1,45 @@
+// -- NEW -- Paste your YouTube API Key here
+const YOUTUBE_API_KEY = "AIzaSyB-lyf_6WXVQqWNHm045iLrt6l9Lv0Y4H4";
+
+async function loadYouTubePlaylist(playlistId) {
+    const apiKey = YOUTUBE_API_KEY;
+    try {
+        const response = await fetch(
+            `https://www.googleapis.com/youtube/v3/playlistItems?part=snippet&maxResults=50&playlistId=${playlistId}&key=${apiKey}`
+        );
+        const data = await response.json();
+
+        if (data.items && data.items.length > 0) {
+            playlistVideoIds = data.items.map(item => ({
+                id: item.snippet.resourceId.videoId,
+                title: item.snippet.title
+            }));
+            currentIndex = 0;
+            playByIndex(currentIndex); // Start first video
+        } else {
+            console.error("No videos found in this playlist.");
+        }
+    } catch (err) {
+        console.error("Failed to load playlist:", err);
+    }
+}
+
+
+
+// --- Global State Variables ---
 let currentSong = new Audio();
-let currfolder = "";
 let songs = [];
+let currfolder = "";
 let currentIndex = 0;
 
-// ---------- utils ----------
+// -- NEW -- State management for player type (local vs. youtube)
+let player; // This will be the YouTube player instance
+let playerMode = 'local'; // Can be 'local' or 'youtube'
+let isYoutubeReady = false; // Flag to check if the YT API has loaded
+let timeUpdater; // This will hold our setInterval for the YouTube time updates
+
+
+// ---------- UTILS ----------
 function minSec(seconds) {
     if (isNaN(seconds) || seconds < 0) return "0:00";
     const m = Math.floor(seconds / 60);
@@ -11,18 +47,16 @@ function minSec(seconds) {
     return `${m}:${s < 10 ? "0" + s : s}`;
 }
 
-// ---------- data ----------
-async function getSongs(folder) {
+// ---------- DATA FETCHING ----------
 
+// This function for local files remains the same
+async function getSongs(folder) {
     currfolder = folder;
     const base = `http://127.0.0.1:5500/${currfolder}/`;
-
     const res = await fetch(base);
     const html = await res.text();
-
     const div = document.createElement("div");
     div.innerHTML = html;
-
     const list = [];
     for (const a of div.getElementsByTagName("a")) {
         const href = a.getAttribute("href");
@@ -30,78 +64,130 @@ async function getSongs(folder) {
         const abs = new URL(href, base).href;
         if (abs.toLowerCase().endsWith(".mp3")) list.push(abs);
     }
-
-    songs = list;
     return list;
 }
 
-// ---------- UI render ----------
+// -- NEW -- Function to fetch a YouTube playlist
+async function getYouTubePlaylist(playlistId) {
+    if (!YOUTUBE_API_KEY || YOUTUBE_API_KEY === "PASTE_YOUR_API_KEY_HERE") {
+        alert("Error: YouTube API Key is missing in script.js");
+        return [];
+    }
+    const url = `https://www.googleapis.com/youtube/v3/playlistItems?part=snippet&playlistId=${playlistId}&maxResults=50&key=${YOUTUBE_API_KEY}`;
+    try {
+        const response = await fetch(url);
+        const data = await response.json();
+        if (data.error) {
+            console.error("YouTube API Error:", data.error.message);
+            return [];
+        }
+        // Format the data to be consistent with our app
+        return data.items.map(item => ({
+            id: item.snippet.resourceId.videoId,
+            title: item.snippet.title,
+            artist: item.snippet.videoOwnerChannelTitle
+        }));
+    } catch (error) {
+        console.error("Failed to fetch YouTube playlist:", error);
+        return [];
+    }
+}
+
+
+// ---------- YOUTUBE PLAYER API SETUP (NEW) ----------
+// This global function is required by the YouTube IFrame API script
+function onYouTubeIframeAPIReady() {
+    player = new YT.Player('youtube-player', {
+        height: '0',
+        width: '0',
+        playerVars: {
+            'playsinline': 1
+        },
+        events: {
+            'onReady': () => {
+                isYoutubeReady = true;
+                console.log("YouTube Player is ready.");
+                main();
+            },
+            'onStateChange': onPlayerStateChange
+        }
+    });
+}
+
+function onPlayerStateChange(event) {
+    const playBtn = document.getElementById("play");
+    if (event.data == YT.PlayerState.PLAYING) {
+        playBtn.src = "img/pause.svg";
+        // Start the timer to update the seekbar
+        startYoutubeTimer();
+    } else {
+        playBtn.src = "img/playbar.svg";
+        // Stop the timer when paused or ended
+        clearInterval(timeUpdater);
+    }
+    // Auto-play next song when one ends
+    if (event.data == YT.PlayerState.ENDED) {
+        playNext();
+    }
+}
+
+function startYoutubeTimer() {
+    clearInterval(timeUpdater); // Clear any existing timer
+    timeUpdater = setInterval(() => {
+        if (player && player.getDuration) {
+            const currentTime = player.getCurrentTime();
+            const duration = player.getDuration();
+            if (duration > 0) {
+                const pct = (currentTime / duration) * 100;
+                document.querySelector(".songTime").innerHTML = `${minSec(currentTime)} / ${minSec(duration)}`;
+                document.querySelector(".circle").style.left = `${pct}%`;
+                document.querySelector(".progress").style.width = `${pct}%`;
+            }
+        }
+    }, 500);
+}
+
+
+// ---------- UI RENDERING ----------
+
+// -- MODIFIED -- to handle both local and YouTube song titles
 function renderLibrary() {
     const ul = document.querySelector(".songlist ul");
-    if (!ul) return;
-
     ul.innerHTML = "";
     songs.forEach((song, i) => {
-        const name = decodeURIComponent(song.split("/").pop().replace(/\.mp3$/i, ""));
-        ul.insertAdjacentHTML(
-            "beforeend",
+        let name, artist;
+        if (playerMode === 'local') {
+            name = decodeURIComponent(song.split("/").pop().replace(/\.mp3$/i, ""));
+            artist = "Subrata"; // Your default artist
+        } else { // youtube mode
+            name = song.title;
+            artist = song.artist;
+        }
+
+        ul.insertAdjacentHTML("beforeend",
             `<li data-index="${i}">
-                <img class="music" src="music.svg" alt="">
+                <img class="music" src="img/music.svg" alt="">
                 <div class="info">
                     <div>${name}</div>
-                    <div>Subrata</div>
+                    <div>${artist}</div>
                 </div>
                 <div class="playBar">
                     <span>Play Now</span>
-                    <img class="playNow" src="playNow.svg" alt="">
+                    <img class="playNow" src="img/playNow.svg" alt="">
                 </div>
             </li>`
         );
     });
 }
 
-
-// ---------- playback ----------
-function playByIndex(index, autoplay = true) {
-    if (!songs.length) return;
-    currentIndex = Math.max(0, Math.min(index, songs.length - 1));
-
-    const track = songs[currentIndex];
-    currentSong.src = track;
-
-    const name = decodeURIComponent(track.split("/").pop().replace(/\.mp3$/i, ""));
-    const songInfo = document.querySelector(".songInfo");
-    if (songInfo) songInfo.innerHTML = `<h2>${name}</h2>`;
-
-    const setDuration = () => {
-        const st = document.querySelector(".songTime");
-        if (st) st.innerHTML = `0:00 / ${minSec(currentSong.duration)}`;
-    };
-    if (currentSong.readyState >= 1) setDuration();
-    else currentSong.addEventListener("loadedmetadata", setDuration, { once: true });
-
-    const playBtn = document.getElementById("play");
-    if (autoplay) {
-        currentSong.play().catch(err => console.error("Play failed:", err));
-        if (playBtn) playBtn.src = "pause.svg";
-    } else {
-        if (playBtn) playBtn.src = "playbar.svg";
-    }
-}
-
-
-// ✅ FIXED AND IMPROVED FUNCTION
+// -- MODIFIED -- to display both local and YouTube playlist cards
 async function displayAlbums() {
     const cardContainer = document.querySelector(".cardContainer");
-    if (!cardContainer) {
-        console.error("Error: The .cardContainer element was not found in your HTML.");
-        return;
-    }
+    if (!cardContainer) return;
+    cardContainer.innerHTML = ''; // Clear existing cards
 
-    // ✅ FIX 1: Corrected the IP Address
+    // --- 1. Display Local Albums (your original logic) ---
     const songsURL = `http://127.0.0.1:5500/songs/`;
-    console.log("Starting to fetch albums...");  //debug
-
     try {
         const response = await fetch(songsURL);
         const htmlText = await response.text();
@@ -109,174 +195,242 @@ async function displayAlbums() {
         div.innerHTML = htmlText;
         const anchors = div.getElementsByTagName("a");
 
-        // ✅ FIX 2: Used a 'for...of' loop to correctly handle async/await
+
         for (const element of Array.from(anchors)) {
-
-            // A more reliable way to find only the folder links
-            if (element.href.includes("/songs")) {
-
-                if (element.href === songsURL) {
-                    continue;
-                }
-
-                // This correctly gets the folder name (e.g., "Bollywood")
+            if (element.href.includes("/songs") && element.href !== songsURL) {
                 const folderName = element.pathname.split('/').filter(Boolean).pop();
-                console.log(`Found potential folder: ${folderName}`);  //debug
 
-                if (folderName) {
+                // -- NEW FIX -- This line checks if the folder found is NOT named 'songs'
+                if (folderName && folderName.toLowerCase() !== 'songs') {
                     try {
-                        // Fetch the metadata for each album
                         const metadataResponse = await fetch(`${songsURL}${folderName}/info.json`);
-                        if (!metadataResponse.ok) continue; // Skip if info.json doesn't exist
-
+                        if (!metadataResponse.ok) continue;
                         const metadata = await metadataResponse.json();
-
-                        // Append the new card to the container
                         cardContainer.innerHTML += `
-                            <div data-folder="${folderName}" class="card">
-                                <div class="play"><img src="play.svg" alt="Play button"></div>
-                                <img class="thumbnail" src="/songs/${folderName}/cover.jpg" alt="Album cover">
-                                <h2>${metadata.title}</h2>
-                                <p>${metadata.description}</p>
-                            </div>`;
+                    <div data-folder="${folderName}" data-type="local" class="card">
+                        <div class="play"><img src="img/play.svg" alt="Play button"></div>
+                        <img class="thumbnail" src="/songs/${folderName}/cover.jpg" alt="Album cover">
+                        <h2>${metadata.title}</h2>
+                        <p>${metadata.description}</p>
+                    </div>`;
                     } catch (e) {
                         console.error(`Could not process folder: ${folderName}`, e);
                     }
                 }
             }
         }
-    } catch (error) {
-        console.error("Failed to fetch or display albums.", error);
+    } catch (error) { console.error("Failed to fetch or display local albums.", error); }
+
+    // --- 2. Display Hardcoded YouTube Playlists (NEW) ---
+    // Add as many playlists as you want here. Find the Playlist ID in the YouTube URL.
+    const youtubePlaylists = [
+        {
+            playlistId: "PL04NSSUphsoa2JaVc4ax7Afr68r0OXnWE", // Example: Top Hits playlist
+            title: "Punjabi Vibe",
+            description: "The most played tracks right now on YouTube.",
+            cover: "img/cover.jpg" // You'll need to provide your own cover images
+        },
+        {
+            playlistId: "PL04NSSUphsoapRrclPcTInvzsE7s3G2wz", // Example: Lofi playlist
+            title: "English Songs",
+            description: "Alone walk in hill station.",
+            cover: "img/cover2.webp" // You'll need to provide another cover image
+        }
+    ];
+
+    youtubePlaylists.forEach(pl => {
+        cardContainer.innerHTML += `
+            <div data-playlist-id="${pl.playlistId}" data-type="youtube" class="card">
+                <div class="play"><img src="img/play.svg" alt="Play button"></div>
+                <img class="thumbnail" src="${pl.cover}" alt="Playlist cover">
+                <h2>${pl.title}</h2>
+                <p>${pl.description}</p>
+            </div>`;
+    });
+}
+
+
+// ---------- PLAYBACK LOGIC ----------
+
+// -- MODIFIED -- to handle both players
+function playByIndex(index, autoplay = true) {
+    if (!songs.length) return;
+
+    currentIndex = Math.max(0, Math.min(index, songs.length - 1));
+    const track = songs[currentIndex];
+
+    // Stop any previously playing audio/video
+    currentSong.pause();
+    if (isYoutubeReady && player.stopVideo) player.stopVideo();
+    clearInterval(timeUpdater);
+
+    if (playerMode === 'local') {
+        // For local MP3
+        currentSong.src = track; // Your local file path
+        const name = decodeURIComponent(track.split("/").pop().replace(/\.mp3$/i, ""));
+        document.querySelector(".songInfo").innerHTML = `<h2>${name}</h2>`;
+        if (autoplay) {
+            currentSong.play();
+            document.getElementById("play").src = "img/pause.svg";
+        }
+    } else if (playerMode === 'youtube') {
+        // For YouTube Playlist
+        if (!isYoutubeReady) {
+            console.error("YouTube player is not ready yet.");
+            return;
+        }
+        document.querySelector(".songInfo").innerHTML = `<h2>${track.title}</h2>`;
+        document.querySelector(".songTime").innerHTML = "0:00 / 0:00";
+
+        if (autoplay) {
+            player.loadVideoById(track.id);
+            player.playVideo(); // Ensure it starts playing
+        } else {
+            player.cueVideoById(track.id);
+        }
     }
 }
 
 
 
-// ---------- main wiring ----------
-async function main() {
 
-    // ✅ CALL THE FUNCTION TO DISPLAY ALBUMS ON THE PAGE
+// -- NEW -- Helper functions for clarity
+function playNext() {
+    // const next = (currentIndex + 1) % songs.length;
+    // playByIndex(next, true);
+    if (!songs.length) return;
+    const nextIndex = (currentIndex + 1) % songs.length;
+    playByIndex(nextIndex, true);
+}
+function playPrevious() {
+    // const prev = (currentIndex - 1 + songs.length) % songs.length;
+    // playByIndex(prev, true);
+    if (!songs.length) return;
+    const prevIndex = (currentIndex - 1 + songs.length) % songs.length;
+    playByIndex(prevIndex, true);
+}
+
+
+// ---------- MAIN WIRING ----------
+async function main() {
     await displayAlbums();
 
-    // Using event delegation on the container is more efficient
-    const cardContainer = document.querySelector(".cardContainer");
-    if (cardContainer) {
-        cardContainer.addEventListener("click", async (event) => {
-            // Find the card that was actually clicked on
-            const card = event.target.closest(".card");
+    // -- MODIFIED -- Card container click listener to handle both types
+    document.querySelector(".cardContainer").addEventListener("click", async (event) => {
+    const card = event.target.closest(".card");
+    if (!card) return;
 
-            if (card) {
-                const folder = card.dataset.folder;
-                if (!folder) return;
+    const type = card.dataset.type;
+    if (type === 'local') {
+        playerMode = 'local';
+        const folder = card.dataset.folder;
+        songs = await getSongs(`songs/${folder}`);
+        renderLibrary();
+        playByIndex(0, true);
+    } else if (type === 'youtube') {
+        playerMode = 'youtube';
+        const playlistId = card.dataset.playlistId;
+        songs = await getYouTubePlaylist(playlistId);
 
-                // Load songs from the clicked card's folder
-                await getSongs(`songs/${folder}`);
-                renderLibrary();
-                playByIndex(0, true); // Autoplay the first song of the new playlist
+        if (songs.length > 0) {
+            renderLibrary();
+            // Wait until YouTube player is ready
+            if (!isYoutubeReady) {
+                console.log("Waiting for YouTube player...");
+                const waitForYT = setInterval(() => {
+                    if (isYoutubeReady) {
+                        clearInterval(waitForYT);
+                        playByIndex(0, true);
+                    }
+                }, 300);
+            } else {
+                playByIndex(0, true);
             }
-        });
+        }
     }
+});
 
 
-    // Default playlist on load (optional, you can remove this if you want)
-    await getSongs("songs/Hollywood");
-    renderLibrary();
-    playByIndex(0, false); // load first but don't autoplay
-
-    // Library click (delegation) — plays clicked song
-    const ul = document.querySelector(".songlist ul");
-    ul.addEventListener("click", (e) => {
+    // Library song click (works for both modes)
+    document.querySelector(".songlist ul").addEventListener("click", (e) => {
         const li = e.target.closest("li[data-index]");
-        if (!li) return;
-        const idx = Number(li.dataset.index);
-        playByIndex(idx, true);
-    });
-
-    // Controls
-    const playBtn = document.getElementById("play");
-    const prevBtn = document.getElementById("previous");
-    const nextBtn = document.getElementById("next");
-
-    playBtn.addEventListener("click", () => {
-        if (currentSong.paused) {
-            currentSong.play();
-            playBtn.src = "pause.svg";
-        } else {
-            currentSong.pause();
-            playBtn.src = "playbar.svg";
+        if (li) {
+            playByIndex(Number(li.dataset.index), true);
         }
     });
 
-    nextBtn.addEventListener("click", () => {
-        const next = (currentIndex + 1) % songs.length;
-        playByIndex(next, true);
+
+    document.querySelectorAll(".play-now").forEach(button => {
+        button.addEventListener("click", () => {
+            const index = parseInt(button.getAttribute("data-index"), 10);
+            if (playerMode === 'youtube' && !isYoutubeReady) {
+                console.warn("YouTube player is not ready yet!");
+                return;
+            }
+            playByIndex(index, true);
+        });
     });
 
-    prevBtn.addEventListener("click", () => {
-        const prev = (currentIndex - 1 + songs.length) % songs.length;
-        playByIndex(prev, true);
+
+
+    // -- MODIFIED -- Playback controls to handle both players
+    document.getElementById("play").addEventListener("click", () => {
+        if (playerMode === 'local') {
+            if (currentSong.paused) {
+                currentSong.play();
+                document.getElementById("play").src = "img/pause.svg";
+            } else {
+                currentSong.pause();
+                document.getElementById("play").src = "img/playbar.svg";
+            }
+        } else { // youtube mode
+            const playerState = player.getPlayerState();
+            if (playerState === YT.PlayerState.PLAYING) {
+                player.pauseVideo();
+                document.getElementById("play").src = "img/playbar.svg";
+            } else {
+                player.playVideo();
+                document.getElementById("play").src = "img/pause.svg";
+            }
+        }
     });
 
-    // Progress updates
+
+    document.getElementById("next").addEventListener("click", playNext);
+    document.getElementById("previous").addEventListener("click", playPrevious);
+
+    // -- MODIFIED -- Local song time update event
     currentSong.addEventListener("timeupdate", () => {
-        if (!currentSong.duration) return;
+        if (playerMode !== 'local' || !currentSong.duration) return;
         const pct = (currentSong.currentTime / currentSong.duration) * 100;
-        const st = document.querySelector(".songTime");
-        if (st) st.innerHTML = `${minSec(currentSong.currentTime)} / ${minSec(currentSong.duration)}`;
-        const circle = document.querySelector(".circle");
-        const progress = document.querySelector(".progress");
-        if (circle) circle.style.left = `${pct}%`;
-        if (progress) progress.style.width = `${pct}%`;
-    });
-
-    // Seekbar click + drag
-    const seekbar = document.querySelector(".seekbar");
-    let dragging = false;
-
-    seekbar.addEventListener("click", (e) => {
-        const r = seekbar.getBoundingClientRect();
-        let pct = ((e.clientX - r.left) / r.width) * 100;
-        pct = Math.max(0, Math.min(100, pct));
+        document.querySelector(".songTime").innerHTML = `${minSec(currentSong.currentTime)} / ${minSec(currentSong.duration)}`;
         document.querySelector(".circle").style.left = `${pct}%`;
         document.querySelector(".progress").style.width = `${pct}%`;
-        if (currentSong.duration) currentSong.currentTime = (currentSong.duration * pct) / 100;
     });
 
-    seekbar.addEventListener("mousedown", (e) => { dragging = true; updateSeekbar(e); });
-    window.addEventListener("mousemove", (e) => { if (dragging) updateSeekbar(e); });
-    window.addEventListener("mouseup", (e) => {
-        if (!dragging) return;
-        dragging = false;
-        const r = seekbar.getBoundingClientRect();
-        let pct = ((e.clientX - r.left) / r.width) * 100;
-        pct = Math.max(0, Math.min(100, pct));
-        if (currentSong.duration) currentSong.currentTime = (currentSong.duration * pct) / 100;
-    });
-    function updateSeekbar(e) {
-        const r = seekbar.getBoundingClientRect();
-        let pct = ((e.clientX - r.left) / r.width) * 100;
-        pct = Math.max(0, Math.min(100, pct));
-        document.querySelector(".circle").style.left = `${pct}%`;
-        document.querySelector(".progress").style.width = `${pct}%`;
-    }
+    // -- MODIFIED -- Seekbar click to handle both players
+    document.querySelector(".seekbar").addEventListener("click", (e) => {
+        const r = document.querySelector(".seekbar").getBoundingClientRect();
+        const pct = (e.clientX - r.left) / r.width;
 
-    // Sidebar toggles (unchanged)
-    document.querySelector(".hamburger").addEventListener("click", () => {
-        document.querySelector(".left").style.left = "0";
-    });
-    document.querySelector(".hamburgerClose").addEventListener("click", () => {
-        document.querySelector(".left").style.left = "-100%";
+        if (playerMode === 'local' && currentSong.duration) {
+            currentSong.currentTime = currentSong.duration * pct;
+        } else if (playerMode === 'youtube' && player.getDuration) {
+            player.seekTo(player.getDuration() * pct);
+        }
     });
 
-    // --- Volume (keep your existing CSS/HTML) ---
+    // -- MODIFIED -- Volume controls to handle both players
+    // --- Volume Control with Single Toggle Icon ---
     let isVolumeDragging = false;
-    let lastVolume = 1;
+    let lastVolume = 1; // last saved volume (0–1 for local, 0–100 for YouTube)
     const volumeBar = document.querySelector(".volumeBar");
     const volumeCircle = document.querySelector(".volumeCircle");
     const volumeProgress = document.querySelector(".volumeProgress");
-    const volumeIcon = document.querySelector(".volume");
-    const muteIcon = document.querySelector(".mute");
-    muteIcon.style.display = "none";
+    const volumeIcon = document.querySelector(".volume"); // single icon element
+
+    // Set default icon
+    volumeIcon.src = "img/volume.svg";
 
     function updateVolumeUI(percent) {
         volumeProgress.style.width = `${percent}%`;
@@ -285,37 +439,72 @@ async function main() {
         const leftPx = (percent / 100) * barWidth - circleWidth / 2;
         volumeCircle.style.left = `${Math.max(-circleWidth / 2, Math.min(leftPx, barWidth - circleWidth / 2))}px`;
     }
+
     function updateVolume(e) {
         const r = volumeBar.getBoundingClientRect();
         let pct = ((e.clientX - r.left) / r.width) * 100;
         pct = Math.max(0, Math.min(100, pct));
-        const vol = pct / 100;
-        currentSong.volume = vol;
-        if (vol > 0) lastVolume = vol;
+
+        if (playerMode === 'local') {
+            const vol = pct / 100;
+            currentSong.volume = vol;
+            if (vol > 0) lastVolume = vol;
+        } else if (playerMode === 'youtube' && player.setVolume) {
+            player.setVolume(pct);
+            if (pct > 0) lastVolume = pct;
+        }
+
         updateVolumeUI(pct);
-        if (vol === 0) { volumeIcon.style.display = "none"; muteIcon.style.display = "inline"; }
-        else { muteIcon.style.display = "none"; volumeIcon.style.display = "inline"; }
+        volumeIcon.src = pct === 0 ? "img/mute.svg" : "img/volume.svg";
     }
+
+    // Drag to set volume
     volumeBar.addEventListener("mousedown", (e) => { isVolumeDragging = true; updateVolume(e); });
     window.addEventListener("mousemove", (e) => { if (isVolumeDragging) updateVolume(e); });
     window.addEventListener("mouseup", () => { isVolumeDragging = false; });
+
+    // Click to mute/unmute
     volumeIcon.addEventListener("click", () => {
-        lastVolume = currentSong.volume || lastVolume || 1;
-        currentSong.volume = 0;
-        volumeIcon.style.display = "none";
-        muteIcon.style.display = "inline";
-        // UI stays where it was (per your requirement)
-    });
-    muteIcon.addEventListener("click", () => {
-        currentSong.volume = lastVolume || 1;
-        muteIcon.style.display = "none";
-        volumeIcon.style.display = "inline";
-        updateVolumeUI(currentSong.volume * 100); // sync UI back if needed
+        if (playerMode === 'local') {
+            if (currentSong.volume > 0) {
+                lastVolume = currentSong.volume;
+                currentSong.volume = 0;
+                updateVolumeUI(0);
+                volumeIcon.src = "img/mute.svg";
+            } else {
+                currentSong.volume = lastVolume || 1;
+                updateVolumeUI((lastVolume || 1) * 100);
+                volumeIcon.src = "img/volume.svg";
+            }
+        } else if (playerMode === 'youtube' && player.getVolume) {
+            if (player.getVolume() > 0) {
+                lastVolume = player.getVolume();
+                player.setVolume(0);
+                updateVolumeUI(0);
+                volumeIcon.src = "img/mute.svg";
+            } else {
+                player.setVolume(lastVolume || 100);
+                updateVolumeUI(lastVolume || 100);
+                volumeIcon.src = "img/volume.svg";
+            }
+        }
     });
 
-    // Optional: show full volume UI on load
+    // Start with full volume
     updateVolumeUI(100);
+
+
+    // Hamburger menu (no changes needed)
+    document.querySelector(".hamburger").addEventListener("click", () => {
+        document.querySelector(".left").style.left = "0";
+    });
+    document.querySelector(".hamburgerClose").addEventListener("click", () => {
+        document.querySelector(".left").style.left = "-100%";
+    });
+
+    // Load a default local playlist on startup
+    songs = await getSongs("songs/Hollywood");
+    renderLibrary();
+    playByIndex(0, false); // Load first song but don't play
 }
 
-
-main();
