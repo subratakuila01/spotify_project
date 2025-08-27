@@ -15,7 +15,7 @@ function minSec(seconds) {
 async function getSongs(folder) {
 
     currfolder = folder;
-    const base = `http://127.0.0.1:5500/${currfolder}/`;
+    const base = `/${currfolder}/`;
 
     const res = await fetch(base);
     const html = await res.text();
