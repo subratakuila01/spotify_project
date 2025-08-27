@@ -15,7 +15,7 @@ function minSec(seconds) {
 async function getSongs(folder) {
 
     currfolder = folder;
-    const base = `/${currfolder}/`;
+    const base = `${window.location.origin}/${currfolder}/`;
 
     const res = await fetch(base);
     const html = await res.text();
@@ -46,7 +46,7 @@ function renderLibrary() {
         ul.insertAdjacentHTML(
             "beforeend",
             `<li data-index="${i}">
-                <img class="music" src="img/music.svg" alt="">
+                <img class="music" src="./img/music.svg" alt="">
                 <div class="info">
                     <div>${name}</div>
                     <div>Subrata</div>
@@ -99,7 +99,7 @@ async function displayAlbums() {
     }
 
     // ✅ FIX 1: Corrected the IP Address
-    const songsURL = `/songs/`;
+    const songsURL = `${window.location.origin}/songs/`;
     console.log("Starting to fetch albums...");  //debug
 
     try {
