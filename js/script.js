@@ -135,7 +135,7 @@ async function displayAlbums() {
                         cardContainer.innerHTML += `
                             <div data-folder="${folderName}" class="card">
                                 <div class="play"><img src="img/play.svg" alt="Play button"></div>
-                                <img class="thumbnail" src="/songs/${folderName}/cover.webp" alt="Album cover">
+                                <img class="thumbnail" src="songs/${folderName}/cover.webp" alt="Album cover">
                                 <h2>${metadata.title}</h2>
                                 <p>${metadata.description}</p>
                             </div>`;
