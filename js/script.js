@@ -99,7 +99,7 @@ async function displayAlbums() {
     }
 
     // ✅ FIX 1: Corrected the IP Address
-    const songsURL = `http://127.0.0.1:5500/songs/`;
+    const songsURL = `/songs/`;
     console.log("Starting to fetch albums...");  //debug
 
     try {
