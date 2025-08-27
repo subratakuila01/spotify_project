@@ -179,7 +179,7 @@ async function main() {
 
 
     // Default playlist on load (optional, you can remove this if you want)
-    await getSongs("songs/Hollywood");
+    await getSongs("songs/1_Global_Vibes");
     renderLibrary();
     playByIndex(0, false); // load first but don't autoplay
 
@@ -228,6 +228,21 @@ async function main() {
         if (circle) circle.style.left = `${pct}%`;
         if (progress) progress.style.width = `${pct}%`;
     });
+
+    // Auto-play next song when current ends
+    currentSong.addEventListener("ended", () => {
+        if (currentIndex < songs.length - 1) {
+            // Play the next song if not at the end
+            playByIndex(currentIndex + 1, true);
+        } else {
+            // Stop at the last song
+            const playBtn = document.getElementById("play");
+            if (playBtn) playBtn.src = "img/playbar.svg"; // change to play icon
+            currentSong.pause();
+            currentSong.currentTime = 0; // reset to start
+        }
+    });
+
 
 
     // --- Seekbar ---
@@ -318,6 +333,25 @@ async function main() {
     // Optional: show full volume UI on load
     updateVolumeUI(100);
 }
+
+
+// Disable right-click
+document.addEventListener("contextmenu", event => event.preventDefault());
+
+// Disable F12, Ctrl+Shift+I, Ctrl+U, Ctrl+S, Ctrl+Shift+J
+document.addEventListener("keydown", event => {
+    if (
+        event.key === "F12" ||
+        (event.ctrlKey && event.shiftKey && event.key.toLowerCase() === "i") ||
+        (event.ctrlKey && event.key.toLowerCase() === "u") ||
+        (event.ctrlKey && event.key.toLowerCase() === "s") ||
+        (event.ctrlKey && event.shiftKey && event.key.toLowerCase() === "j")
+    ) {
+        event.preventDefault();
+        event.stopPropagation();
+        alert("Developer tools are disabled on this site.");
+    }
+});
 
 
 main();
