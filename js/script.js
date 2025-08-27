@@ -179,7 +179,7 @@ async function main() {
 
 
     // Default playlist on load (optional, you can remove this if you want)
-    await getSongs("songs/1_Global_Vibes");
+    await getSongs("./songs/1_Global_Vibes");
     renderLibrary();
     playByIndex(0, false); // load first but don't autoplay
 
