@@ -15,7 +15,7 @@ function minSec(seconds) {
 async function getSongs(folder) {
 
     currfolder = folder;
-    const base = `https://spotify-play.netlify.app/${currfolder}/`;
+    const base = `/${currfolder}/`;
 
     const res = await fetch(base);
     const html = await res.text();
@@ -99,7 +99,7 @@ async function displayAlbums() {
     }
 
     // ✅ FIX 1: Corrected the IP Address
-    const songsURL = `https://spotify-play.netlify.app/songs/`;
+    const songsURL = `/songs/`;
     console.log("Starting to fetch albums...");  //debug
 
     try {
